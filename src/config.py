@@ -16,3 +16,6 @@ class Settings:
         "llm evaluation OR ai safety OR ai agents"
     )
     github_max_results: int = int(os.getenv("GITHUB_MAX_RESULTS", "30"))
+
+def get_settings() -> Settings:
+    return Settings()
