@@ -80,7 +80,9 @@ def save_github_outputs(payload: dict[str, Any], df: DataFrame, base_dir: str) -
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
-    df.write.mode("overwrite").parquet(raw_parquet_dir)
+    record_count = df.count()
+    logger.info("Writing %s GitHub records to %s", record_count, raw_parquet_dir)
+    df.coalesce(1).write.mode("overwrite").parquet(raw_parquet_dir)
 
 def run() -> None:
     settings = get_settings()

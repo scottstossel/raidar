@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -16,18 +17,55 @@ logger = get_logger(__name__)
 
 ARXIV_URL = "http://export.arxiv.org/api/query"
 
-def fetch_arxiv_raw(max_results: int) -> str:
+def fetch_arxiv_raw(max_results: int, max_retries: int = 5) -> str:
     params = {
         "search_query": "cat:cs.AI OR cat:cs.LG OR all:safety OR all:evaluation OR all:agent",
         "start": 0,
-        "max_results": max_results,
+        "max_results": min(max_results, 25),
         "sortBy": "submittedDate",
         "sortOrder": "descending",
     }
 
-    response = requests.get(ARXIV_URL, params=params, timeout=30)
-    response.raise_for_status()
-    return response.text
+    headers = {
+        "User-Agent": "raidar/0.1 (contact: stoss96@gmail.com)"
+    }
+
+    delay = 3
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(
+                ARXIV_URL,
+                params=params,
+                headers=headers,
+                timeout=(10, 60),
+                allow_redirects=True
+            )
+            print("Final URL: ", response.url)
+            print("Status Code: ", response.status_code)
+
+            if response.status_code == 200:
+                return response.text
+            
+            if response.status_code == 429:
+                print(f"arXiv rate limit hit, sleeping for {delay} seconds before retrying...")
+                time.sleep(delay)
+                delay *=2
+                continue
+
+            response.raise_for_status()
+
+        except requests.exceptions.ReadTimeout:
+            print(f"Read timeout on attempt {attempt + 1}. Sleeping {delay} seconds...")
+            time.sleep(delay)
+            delay *= 2
+
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed on attempt {attempt + 1}: {e}")
+            time.sleep(delay)
+            delay *= 2
+            
+    raise RuntimeError("arXiv API request failed after multiple retries")
 
 def parse_arxiv_xml(xml_text: str) -> list[dict[str, Any]]:
     ns = {
@@ -86,7 +124,9 @@ def save_arxiv_outputs(xml_text: str, df: DataFrame, base_dir: str) -> None:
     with open(xml_path, "w", encoding="utf-8") as f:
         f.write(xml_text)
 
-    df.write.mode("overwrite").parquet(raw_parquet_dir)
+    record_count = df.count()
+    logger.info("Writing %s arXiv records to %s", record_count, raw_parquet_dir)
+    df.coalesce(1).write.mode("overwrite").parquet(raw_parquet_dir)
 
 def run() -> None:
     settings = get_settings()
