@@ -36,3 +36,8 @@ def add_topic_tags(df):
         )
     )
 
+def tag_documents(df):
+    df = add_analysis_text(df)
+    df = add_topic_flags(df)
+    df = add_topic_tags(df)
+    return df
