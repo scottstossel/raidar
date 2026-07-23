@@ -51,6 +51,22 @@ class BriefORM(Base):
     ingestion_time_seconds = Column(Float, nullable=True)
 
 
+class DocumentFeaturesORM(Base):
+    __tablename__ = "document_features"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    topic = Column(String(100), nullable=False)
+    secondary_topics = Column(String(255), nullable=True)  # Comma-separated
+    theme = Column(String(100), nullable=False)
+    trend_score = Column(Float, nullable=False)
+    embedding_id = Column(String(255), nullable=True)  # Pinecone vector ID
+    source_contribution = Column(Float, default=1.0)
+    computed_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index("ix_document_features_document_id", "document_id"),)
+
+
 class AuditLogORM(Base):
     __tablename__ = "audit_logs"
 

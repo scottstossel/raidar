@@ -39,8 +39,9 @@ def run_ingestion():
 
 def run_feature_computation():
     """Compute features for newly ingested documents."""
-    # TODO: Implement feature computation
-    print("Feature computation not yet implemented")
+    from src.features.run import compute_features_for_new_documents
+    count = compute_features_for_new_documents(batch_size=100)
+    print(f"Feature computation complete: {count} documents processed")
 
 
 def run_intel_layer():
