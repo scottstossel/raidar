@@ -45,15 +45,14 @@ def run_feature_computation():
 
 
 def run_intel_layer():
-    """Run multi-agent reasoning on documents."""
-    # TODO: Implement intel layer
-    print("Intel layer not yet implemented")
-
-
-def run_synthesis():
-    """Generate daily brief."""
-    # TODO: Implement synthesis
-    print("Synthesis not yet implemented")
+    """Run multi-agent reasoning (discovery, analysis, skeptic) on documents."""
+    from src.intel.run import run_intel_pipeline
+    result = run_intel_pipeline(brief_type="daily")
+    print(f"Intel pipeline complete:")
+    print(f"  Processed: {result['processed_count']}")
+    print(f"  Passed discovery: {result['passed_discovery']}")
+    print(f"  Escalations: {result['skeptic_escalations']}")
+    return result
 
 
 with dag:
@@ -78,12 +77,5 @@ with dag:
         pool="intel_pool",
     )
 
-    # Task 4: Generate brief
-    synthesis_task = PythonOperator(
-        task_id="synthesize_brief",
-        python_callable=run_synthesis,
-        pool="synthesis_pool",
-    )
-
     # Define dependencies
-    ingest_task >> features_task >> intel_task >> synthesis_task
+    ingest_task >> features_task >> intel_task
