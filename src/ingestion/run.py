@@ -1,11 +1,13 @@
 """Ingestion orchestrator: fetch from sources, deduplicate, persist."""
 
 import logging
-from typing import List
+from typing import List, Dict
 from datetime import datetime
 
 from src.ingestion.models import Document
 from src.ingestion.arxiv import ArxivAdapter
+from src.ingestion.github import GitHubAdapter
+from src.ingestion.huggingface import HuggingFaceAdapter
 from src.ingestion.dedup import DedupChecker
 from src.db.session import get_db_session
 from src.db.models import DocumentORM
@@ -69,15 +71,128 @@ def ingest_arxiv(num_papers: int = 100) -> int:
         adapter.close()
 
 
-def run_full_ingestion() -> int:
-    """Run ingestion from all sources. Returns total new document count."""
-    # TODO: Add GitHub and HuggingFace adapters here
-    total_new = 0
-    total_new += ingest_arxiv()
-    return total_new
+def ingest_github(num_repos: int = 50) -> int:
+    """Fetch recent repositories and discussions from GitHub."""
+    adapter = GitHubAdapter()
+    db = get_db_session()
+    dedup_checker = DedupChecker(db)
+
+    try:
+        # Fetch both repos and discussions
+        documents = adapter.fetch_recent_repos(num_repos=num_repos)
+        documents.extend(adapter.fetch_trending_discussions(num_discussions=30))
+        logger.info(f"Fetched {len(documents)} items from GitHub")
+
+        new_count = 0
+        dedup_count = 0
+
+        for doc in documents:
+            if dedup_checker.is_duplicate(doc):
+                dedup_count += 1
+                continue
+
+            orm_doc = DocumentORM(
+                source=doc.source,
+                source_id=doc.source_id,
+                title=doc.title,
+                content=doc.content,
+                url=doc.url,
+                metadata_json=doc.metadata,
+                fetched_at=doc.fetched_at,
+                ingested_at=datetime.utcnow(),
+            )
+            db.add(orm_doc)
+            db.flush()
+
+            dedup_checker.record_dedup_hashes(orm_doc.id, doc)
+            new_count += 1
+
+        db.commit()
+        logger.info(f"Persisted {new_count} new documents from GitHub, {dedup_count} duplicates")
+
+        log_ingestion_metric(
+            source="github",
+            fetch_count=len(documents),
+            fetch_errors=0,
+            dedup_matches=dedup_count,
+            new_documents=new_count,
+        )
+
+        return new_count
+
+    finally:
+        db.close()
+        adapter.close()
+
+
+def ingest_huggingface(num_models: int = 50, num_datasets: int = 30) -> int:
+    """Fetch recent models and datasets from Hugging Face Hub."""
+    adapter = HuggingFaceAdapter()
+    db = get_db_session()
+    dedup_checker = DedupChecker(db)
+
+    try:
+        documents = adapter.fetch_recent_models(num_models=num_models)
+        documents.extend(adapter.fetch_recent_datasets(num_datasets=num_datasets))
+        logger.info(f"Fetched {len(documents)} items from Hugging Face")
+
+        new_count = 0
+        dedup_count = 0
+
+        for doc in documents:
+            if dedup_checker.is_duplicate(doc):
+                dedup_count += 1
+                continue
+
+            orm_doc = DocumentORM(
+                source=doc.source,
+                source_id=doc.source_id,
+                title=doc.title,
+                content=doc.content,
+                url=doc.url,
+                metadata_json=doc.metadata,
+                fetched_at=doc.fetched_at,
+                ingested_at=datetime.utcnow(),
+            )
+            db.add(orm_doc)
+            db.flush()
+
+            dedup_checker.record_dedup_hashes(orm_doc.id, doc)
+            new_count += 1
+
+        db.commit()
+        logger.info(
+            f"Persisted {new_count} new documents from Hugging Face, {dedup_count} duplicates"
+        )
+
+        log_ingestion_metric(
+            source="huggingface",
+            fetch_count=len(documents),
+            fetch_errors=0,
+            dedup_matches=dedup_count,
+            new_documents=new_count,
+        )
+
+        return new_count
+
+    finally:
+        db.close()
+        adapter.close()
+
+
+def run_full_ingestion() -> Dict[str, int]:
+    """Run ingestion from all sources. Returns dict of new documents per source."""
+    results = {}
+    results["arxiv"] = ingest_arxiv()
+    results["github"] = ingest_github()
+    results["huggingface"] = ingest_huggingface()
+    return results
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    count = run_full_ingestion()
-    print(f"Ingestion complete: {count} new documents")
+    results = run_full_ingestion()
+    total = sum(results.values())
+    logger.info(f"Ingestion complete: {total} new documents")
+    for source, count in results.items():
+        logger.info(f"  {source}: {count} new")
